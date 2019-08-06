@@ -1,0 +1,10 @@
+*       text=auto
+*.uasset filter=lfs diff=lfs merge=lfs -text
+ue      text    eol=lf
+/.clang-format    text    eol=lf
+*.cpp   text    eol=lf
+*.h     text    eol=lf
+*.cs    text    eol=lf
+*.ts    text    eol=lf
+*.js    text    eol=lf
+*.ini   text    eos=lf

@@ -1,0 +1,184 @@
+#!/bin/bash
+
+# This script assumes an installation of WSL (Windows Subsystem for Linux)
+
+# https://answers.unrealengine.com/questions/15278/compile-standalone-command-line.html
+
+set -o xtrace
+
+PROJECT_FILE=$(ls -1 *.uproject)
+PROJECT=${PROJECT_FILE%.uproject}
+PLATFORM="Win64"
+UPROJECT_PATH=$(wslpath -m $PWD/$PROJECT_FILE)
+echo $UPROJECT_PATH
+
+# `RELEASE_PATH` is where the project will end up when packaged.
+RELEASE_PATH="f:/${PROJECT}Release"
+
+BIN_CMD="cmd.exe"
+ENGINE_PATH='d:/epic/UE_4.22/Engine'
+#ENGINE_PATH='/f/unrealprojects/unrealengine/LocalBuilds/Engine/Windows/Engine'
+ENGINE_PATH='d:/unreal/UnrealEngine/Engine'
+EDITOR_PATH="${ENGINE_PATH}/Binaries/${PLATFORM}/UE4Editor.exe"
+UBT_PATH="${ENGINE_PATH}/Binaries/DotNET/UnrealBuildTool.exe"
+BATCHFILES_PATH="$ENGINE_PATH/Build/BatchFiles"
+
+# WSL-safe paths to pass into batch file invocations
+EDITOR_PATH_WSL=$(wslpath -u "${EDITOR_PATH}")
+UBT_PATH_WSL=$(wslpath -u "${UBT_PATH}")
+BATCHFILES_PATH_WSL=$(wslpath -w "${BATCHFILES_PATH}")
+BATCHFILE_COMMON="${PROJECT}Editor ${PLATFORM} Development ${UPROJECT_PATH} -waitmutex"
+
+function run_editor {
+    ${EDITOR_PATH_WSL} $*
+}
+
+function run_ubt {
+    ${UBT_PATH_WSL} $*
+}
+
+# Launch the project in the UE4 editor
+function edit() {
+    run_editor ${UPROJECT_PATH} &
+}
+
+# Launch the editor as standalone game
+function game() {
+	run_editor ${UPROJECT_PATH} $* &
+}
+
+
+# Launch the editor as dedicated server
+function server() {
+	#${EDITOR_PATH_WSL} ${UPROJECT_PATH} '/Game/Bravo/Maps/Zarkavda' -log -nosteam -server  &
+	#${EDITOR_PATH_WSL} ${UPROJECT_PATH} '/Game/Bravo/Maps/Zarkavda' -log -nosteam -server  &
+    run_editor ${UPROJECT_PATH} '/Game/Bravo/Maps/Zarkavda' -log -nosteam -server &
+}
+
+# Regenerate project files
+function files() {
+    run_ubt -projectfiles -project="${UPROJECT_PATH}" -game -rocket -progress
+}
+
+# This utility enables us to run the UE4 batch files while remaining in the
+# present directory.
+function ue_batch() {
+    ${BIN_CMD} /c "SET PATH=\"$BATCHFILES_PATH_WSL\" & start /b $*"
+}
+
+# Equivalent of clicking compile in the UE4 editor
+function build() {
+    ue_batch Build.bat $BATCHFILE_COMMON
+}
+
+function rebuild() {
+    ue_batch Rebuild.bat $BATCHFILE_COMMON
+}
+
+function clean() {
+    ue_batch Clean.bat $BATCHFILE_COMMON
+}
+
+function packageClient() {
+    time ue_batch RunUAT.bat BuildCookRun \
+        -ScriptsForProject=${UPROJECT_PATH}
+        -archive \
+        -archivedirectory=${RELEASE_PATH} \
+        -build \
+        -clientconfig=Development \
+        -cook \
+        -installed \
+        -nocompile \
+        -nocompileeditor \
+        -nodebuginfo \
+        -nop4 \
+        -package \
+        -pak \
+        -prereqs \
+        -project=${UPROJECT_PATH} \
+        -stage \
+        -targetplatform=${PLATFORM} \
+        -ue4exe=UE4Editor-Cmd.exe \
+        -utf8output \
+    echo "Project packaged to $RELEASE_PATH" >&2
+}
+
+function packageServer() {
+    time ue_batch RunUAT.bat BuildCookRun \
+        -allmaps \
+        -archive \
+        -archivedirectory=${RELEASE_PATH} \
+        -build \
+        -clientconfig=Development \
+        -cook \
+        -nop4 \
+        -platform=Win64 \
+        -project=${UPROJECT_PATH} \
+        -server \
+        -serverconfig=Development \
+        -servertarget=BravoServer \
+        -ScriptsForProject=${UPROJECT_PATH} \
+        -stage
+    echo "Project server packaged to $RELEASE_PATH" >&2
+}
+
+
+subcmd=$1
+shift
+
+case "$subcmd" in
+    edit)
+        edit $*
+        ;;
+
+    game)
+        game $*
+        ;;
+
+    server)
+        server $*
+        ;;
+
+    files)
+        files $*
+        ;;
+
+    # This is the requivalent of hitting compile in the editor
+    build)
+        build $*
+        ;;
+
+    # This is the equivalent of rebuilding the project from scratch in VS
+    rebuild)
+        rebuild
+        ;;
+
+    clean)
+        clean
+        ;;
+
+    package)
+        #UATHelper: Packaging (Windows (64-bit)): Parsing command line: -ScriptsForProject=F:/unrealprojects/bravogame/BravoGame/BravoGame.uproject BuildCookRun -nocompile -nocompileeditor -installed -nop4 -project=F:/unrealprojects/bravogame/BravoGame/BravoGame.uproject -cook -stage -archive -archivedirectory=D:/BravoRelease -package -clientconfig=Development -ue4exe=UE4Editor-Cmd.exe -pak -prereqs -nodebuginfo -targetplatform=Win64 -build -utf8output
+
+        #PATH="${BATCHFILES_PATH}:$PATH" time ${BIN_CMD} /c RunUAT.bat -ScriptsForProject=${UPROJECT_PATH} BuildCookRun -nocompile -nocompileeditor -installed -nop4 -project=${UPROJECT_PATH} -cook -stage -archive -archivedirectory=${RELEASE_PATH} -package -clientconfig=Development -ue4exe=UE4Editor-Cmd.exe -pak -prereqs -nodebuginfo -targetplatform=Win64 -build -utf8output
+        packageClient
+        ;;
+
+    build2)
+        echo was build
+        # PATH="${BATCHFILES_PATH}:$PATH" ${BIN_CMD} /c RunUAT.bat BuildCookRun -project="f:/unrealprojects/bravogame/BravoGame/BravoGame.uproject" -noP4 -platform="${PLATFORM}" -clientconfig=Development -serverconfig=Development -cook -maps=AllMaps -compile -stage -pak -archive -archivedirectory="Output Directory"
+        PATH="${BATCHFILES_PATH}:$PATH" ${BIN_CMD} /c RunUAT.bat BuildCookRun -project="f:/unreal/Zephyr/Zephyr.uproject" -noP4 -platform="${PLATFORM}" -clientconfig=Development -serverconfig=Development -maps=AllMaps -compile -cook -archivedirectory="d:/bravorelease/"
+        ;;
+
+
+    ui)
+    # This rebuilds the UI files
+        (cd UI/LandingScreen && time ${BIN_CMD} /c npm run build)
+        rm -fr Content/UI/LandingScreen && mkdir -p Content/UI && cp -R UI/LandingScreen/build Content/UI/LandingScreen/
+        ;;
+
+    uistart)
+        cd UI/LandingScreen
+        time ${BIN_CMD} /c npm run start
+        ;;
+esac
